@@ -7,5 +7,3 @@ edition = "2021"
 
 [dependencies]
 eframe = "0.17.0" # Gives us egui, epi and web+native backends
-
-meval = "0.2.0"

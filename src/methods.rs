@@ -1,4 +1,4 @@
-use std::mem::discriminant;
+use std::{f64::consts::PI, mem::discriminant};
 
 use eframe::egui::plot::Value;
 
@@ -32,8 +32,32 @@ pub enum ComputeError {
     SameSign,
 }
 
+pub fn nth_root(x: f64, n: u32) -> f64 {
+    let exp = 1.0 / n as f64;
+    // If n is even we calculate it normally.
+    if (n % 2) == 0 {
+        x.powf(exp)
+    } else {
+        // Otherwise we take abs() of the base and then take it to the power.
+        let absroot = x.abs().powf(exp);
+        // After that we "return" the sign of the base.
+        if x < 0.0 {
+            -absroot
+        } else {
+            absroot
+        }
+    }
+}
+
+fn function(x: f64) -> f64 {
+    x.sin()
+}
+
+fn derivative(x: f64) -> f64 {
+    x.cos()
+}
+
 pub fn find_root(
-    function: &impl Fn(f64) -> f64,
     range_left: f64,
     range_right: f64,
     stop_criteria: &StopCriteria,
@@ -51,10 +75,10 @@ pub fn find_root(
     }
 
     // Find root using bisection
-    let bisection = bisection(&function, range_left, range_right, &stop_criteria);
+    let bisection = bisection(range_left, range_right, &stop_criteria);
 
     // Find root using Newton's method
-    let newton = newton(&function, range_left, range_right, &stop_criteria);
+    let newton = newton(range_left, range_right, &stop_criteria);
 
     // Generate values for the plot
     let values: Vec<Value> = (0..10000)
@@ -71,21 +95,23 @@ pub fn find_root(
     })
 }
 
-pub fn bisection(
-    function: &impl Fn(f64) -> f64,
-    range_left: f64,
-    range_right: f64,
-    stop_criteria: &StopCriteria,
-) -> RootInfo {
+pub fn bisection(range_left: f64, range_right: f64, stop_criteria: &StopCriteria) -> RootInfo {
     let mut left = range_left;
     let mut right = range_right;
 
-    let mut iterations = 1;
-    let mut last_x = range_left;
+    let mut iterations = 0;
+    let mut last_x = left;
 
     loop {
         // Compute midpoint.
         let middle = (left + right) / 2.0;
+
+        // If the middle didn't change it means that the range didn't change, which would happen if
+        // left and right were too close to one another.
+        // This would happen if function was too "vertical" around the root and / or epsilon was too small.
+        if last_x == middle {
+            break;
+        }
 
         // If function has the same sign in the middle as it has on left, we move the left end to the right
         if function(middle) * function(left) > 0.0 {
@@ -95,6 +121,10 @@ pub fn bisection(
             right = middle;
         }
 
+        // Update iteration count and last x.
+        iterations += 1;
+        last_x = middle;
+
         // Break if we've fulfilled the stop criteria.
         match stop_criteria {
             StopCriteria::Iterations(n) => {
@@ -108,10 +138,6 @@ pub fn bisection(
                 }
             }
         }
-
-        // Update iteration count and last x.
-        iterations += 1;
-        last_x = middle;
     }
 
     RootInfo {
@@ -121,28 +147,34 @@ pub fn bisection(
     }
 }
 
-pub fn prime(x: f64) -> f64 {
-    2.0 * x
-}
-
-pub fn newton(
-    function: &impl Fn(f64) -> f64,
-    range_left: f64,
-    range_right: f64,
-    stop_criteria: &StopCriteria,
-) -> RootInfo {
+pub fn newton(range_left: f64, range_right: f64, stop_criteria: &StopCriteria) -> RootInfo {
     let mut x = (range_left + range_right) / 2.0;
 
-    let mut iterations = 1;
+    let mut iterations = 0;
     let mut last_x = x;
+
+    let mut last_last_x = last_x;
+
     loop {
         // If we're about to divide by zero, we break instead.
-        if prime(x).abs() <= f64::MIN_POSITIVE {
+        if derivative(x).abs() <= f64::MIN_POSITIVE {
             break;
         }
 
-        // Compute new x
-        x -= function(x) / prime(x);
+        // Compute new x.
+        x -= function(x) / derivative(x);
+
+        // If one before last value of x is the same as the current one, it means we're going circles,
+        // therefore we break instead.
+        // This would happen if function was too "vertical" around the root and / or epsilon was too small.
+        if x == last_last_x {
+            break;
+        }
+
+        // Update iteration count and last x.
+        iterations += 1;
+        last_last_x = last_x;
+        last_x = x;
 
         // Break if we've fulfilled the stop criteria.
         match stop_criteria {
@@ -157,10 +189,6 @@ pub fn newton(
                 }
             }
         }
-
-        // Update iteration count and last x.
-        iterations += 1;
-        last_x = x;
     }
 
     RootInfo {

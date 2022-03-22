@@ -8,38 +8,29 @@ use methods::{find_root, ComputeError, ComputeOutput, StopCriteria};
 mod methods;
 
 struct AppState {
-    function_text: String,
-    function: Option<Box<dyn Fn(f64) -> f64>>,
-
     range_left: f64,
     range_right: f64,
 
     stop_criteria: StopCriteria,
     compute_result: Option<Result<ComputeOutput, ComputeError>>,
+
+    equal_aspect_ratio: bool,
 }
 
 impl AppState {
     fn new() -> AppState {
         AppState {
-            function_text: String::new(),
-            function: None,
             range_left: 0.0,
             range_right: 1.0,
             stop_criteria: StopCriteria::Iterations(10),
             compute_result: None,
+            equal_aspect_ratio: false,
         }
     }
 
     fn compute(&mut self) {
-        if let Some(function) = &self.function {
-            let result = find_root(
-                &function,
-                self.range_left,
-                self.range_right,
-                &self.stop_criteria,
-            );
-            self.compute_result = Some(result);
-        }
+        let result = find_root(self.range_left, self.range_right, &self.stop_criteria);
+        self.compute_result = Some(result);
     }
 }
 
@@ -51,42 +42,6 @@ impl epi::App for AppState {
     fn update(&mut self, ctx: &egui::Context, _frame: &epi::Frame) {
         egui::SidePanel::left("left_panel").show(ctx, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
-                // Function text input
-                ui.heading("Function");
-                ui.text_edit_singleline(&mut self.function_text);
-
-                // Check if function is valid
-                let func_is_valid: bool;
-                let expr = self.function_text.parse::<meval::Expr>();
-                match expr {
-                    Ok(expr) => {
-                        let function = expr.bind("x");
-                        match function {
-                            Ok(function) => {
-                                func_is_valid = true;
-                                self.function = Some(Box::new(function));
-                            }
-                            Err(_) => {
-                                func_is_valid = false;
-                                self.function = None;
-                            }
-                        }
-                    }
-                    Err(_) => {
-                        func_is_valid = false;
-                        self.function = None;
-                    }
-                }
-
-                // Show if function is valid
-                if func_is_valid {
-                    ui.colored_label(egui::Color32::GREEN, "Valid");
-                } else {
-                    ui.colored_label(egui::Color32::RED, "Invalid");
-                }
-
-                ui.add_space(20.0);
-
                 // Range selection
                 ui.heading("Range");
                 ui.horizontal(|ui| {
@@ -134,13 +89,31 @@ impl epi::App for AppState {
 
                 ui.add_space(20.0);
 
+                ui.checkbox(&mut self.equal_aspect_ratio, "Equal aspect ratio");
+
+                ui.add_space(20.0);
+
+                // Light / Dark
+                ui.horizontal(|ui| {
+                    if ui.button("Light").clicked() {
+                        ctx.set_visuals(egui::style::Visuals::light());
+                    }
+                    if ui.button("Dark").clicked() {
+                        ctx.set_visuals(egui::style::Visuals::dark());
+                    }
+                });
+
+                ui.add_space(20.0);
+
                 match &self.compute_result {
                     Some(Ok(result)) => {
                         ui.heading("Bisection method");
-                        ui.label(format!("Root: {:e}", result.bisection.x));
+                        ui.label(format!("X: {}", result.bisection.x));
+                        ui.label(format!("Y: {:.3e}", result.bisection.y));
                         ui.label(format!("Iterations: {}", result.bisection.iterations));
                         ui.heading("Newton method");
-                        ui.label(format!("Root: {:e}", result.newton.x));
+                        ui.label(format!("X: {}", result.newton.x));
+                        ui.label(format!("Y: {:.3e}", result.newton.y));
                         ui.label(format!("Iterations: {}", result.newton.iterations));
                     }
                     Some(Err(error)) => match error {
@@ -165,28 +138,36 @@ impl epi::App for AppState {
                     compute_result.bisection.x,
                     compute_result.bisection.y,
                 )]))
-                .radius(8.0);
+                .radius(8.0)
+                .name("Bisection");
 
                 let newton = Points::new(Values::from_values(vec![Value::new(
                     compute_result.newton.x,
                     compute_result.newton.y,
                 )]))
                 .radius(8.0)
-                .shape(egui::plot::MarkerShape::Square);
+                .shape(egui::plot::MarkerShape::Square)
+                .name("Newton");
 
                 let vline_left = VLine::new(self.range_left);
                 let vline_right = VLine::new(self.range_right);
 
-                Plot::new("my_plot")
+                let mut plot = Plot::new("my_plot")
                     .show_x(false)
                     .show_y(false)
-                    .show(ui, |plot_ui| {
-                        plot_ui.line(line);
-                        plot_ui.vline(vline_left);
-                        plot_ui.vline(vline_right);
-                        plot_ui.points(bisec);
-                        plot_ui.points(newton);
-                    });
+                    .legend(egui::widgets::plot::Legend::default());
+
+                if self.equal_aspect_ratio {
+                    plot = plot.data_aspect(1.0);
+                }
+
+                plot.show(ui, |plot_ui| {
+                    plot_ui.line(line);
+                    plot_ui.vline(vline_left);
+                    plot_ui.vline(vline_right);
+                    plot_ui.points(bisec);
+                    plot_ui.points(newton);
+                });
             }
             None | Some(Err(_)) => {
                 ui.with_layout(
